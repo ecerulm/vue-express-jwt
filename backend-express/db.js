@@ -21,6 +21,7 @@ userSchema.pre('save', async function() {
 });
 
 userSchema.methods.comparePassword = async function(candidatePassword) {
+    // https://github.com/kelektiv/node.bcrypt.js#with-promises
     return bcrypt.compare(candidatePassword, this.password); 
 }
 
