@@ -20,6 +20,14 @@ The implementation at https://github.com/ecerulm/vue-express-token uses a random
 * On the other hand, token revocation becomes a problem
 
 
+# Setup
+
+* Generate a EdDSA (ed25519) private key 
+`$(brew --prefix openssl)/bin/openssl genpkey -algorithm ed25519 -out ed25519_private.pem`
+* Generate the EdDSA public key from the private key
+`$(brew --prefix openssl)/bin/openssl pkey -in ed25519_private.pem -pubout -out ed25519_public.pem`
+* Generate a self-signed public certificate (X.509) from the key pair
+`$(brew --prefix openssl)/bin/openssl req -x509 -key eddsaprivate.pem -sha256 -out publiccert.pem  -nodes -days 30 -subj '/CN=localhost' -extensions v3_ca`
 
 # Links to the other projects 
 

@@ -1,5 +1,5 @@
 <script setup>
-import { isLoggedIn, updateLoggedInStatus } from '@/apiclient.js';
+import { isLoggedIn, updateLoggedInStatus, getCounter, increaseCounter, counter , logout} from '@/apiclient.js';
 import Login from '@/components/Login.vue';
 </script>
 
@@ -19,8 +19,22 @@ import Login from '@/components/Login.vue';
           </div>
         </div>
         <div class="col">
-          <Login @v-if="!isLoggedIn"></Login>
+          <Login v-if="!isLoggedIn"></Login>
+          <div v-else>
+            <button @click="logout" type="button" class="btn btn-lg btn-outline-primary w-100">Logout</button>
+          </div>
         </div> 
+        <div class="col">
+          <div class="card rounded-3">
+            <div class="card-header py-3 bg-primary border-primary text-white">
+              <h4 class="my-0 fw-bold">Counter value</h4>
+            </div>
+            <div class="card-body">
+               <p>{{counter}}</p>
+               <button @click="increaseCounter" type="button" class="btn btn-lg btn-outline-primary w-100">increase</button>
+            </div>
+          </div>
+        </div>
       </div>
   
     </div>

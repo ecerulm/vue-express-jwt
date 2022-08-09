@@ -24,10 +24,17 @@ const crypto = require('crypto');
     privateJwk.kid = await jose.calculateJwkThumbprint(privateJwk, 'sha256');
     const publicJwk = await jose.exportJWK(publicKey);
     publicJwk.kid = await jose.calculateJwkThumbprint(publicJwk, 'sha256');
+    const certContents = fs.readFileSync('./publiccert.pem');
+    // const publicCert = await jose.importX509(fs.readFileSync('./publiccert.pem').toString());
+    const publicCert = new crypto.X509Certificate(certContents);
+    const x5t = crypto.createHash('sha1').update(publicCert.raw).digest('base64url');
+    console.log('publiccert', x5t);
 
     const keys = {}
     keys[privateJwk.kid] = {
         "publicKey": publicKey,
+        "publicCert": publicCert,
+        "x5t": x5t,
         "privateKey": privateKey, 
     }
 
@@ -89,6 +96,8 @@ const crypto = require('crypto');
                 .setProtectedHeader({
                     alg: 'EdDSA',
                     kid: privateJwk.kid,
+                    typ: 'JWT',
+                    x5t: x5t,
                 })
                 .setIssuedAt()
                 .setExpirationTime('2h')
@@ -102,7 +111,7 @@ const crypto = require('crypto');
                 });
             })
             .catch(err => {
-                logger.error(err);
+                log.err("error checking the authorization header");
                 return res.status(401).json({message: "Invalid credentials"});
             });
         });        
@@ -129,36 +138,103 @@ const crypto = require('crypto');
         // look into the jwt and get the key id (kid) used to sign this token 
         // check that is one of our keys. In principle this is not needed
         // because there is only one key
-        const jwtHeader = jose.decodeProtectedHeader(token);
+        var jwtHeader = null;
+        try {
+            jwtHeader = jose.decodeProtectedHeader(token);
+        } catch (err) {
+            return next();
+        }
         const kid = jwtHeader.kid; 
         if (kid !== privateJwk.kid) {
             console.log("JWT kid does not match any of the keys we use")
             return; 
         }
 
-        console.log(kid);
-        console.log(keys);
+        // both the kid and x5t uniquely identify which private key was used to sign the toke
+        // for kid we are using JWK Thumbprint method  (we can choose)
+        // for x5t must be the sha-1 of the x.509 associated with the private key, encoded in base64
+        // since both kid and x5t uniquely identify we could use any but we use kid. 
+
+        //console.log(kid);
+        //console.log(keys);
 
         const keyToUse = keys[kid].publicKey;
-        console.log(keyToUse);
+        //console.log(keyToUse);
 
-        const { payload, protectedHeader } = await jose.jwtVerify(token, keyToUse, {
+
+        jose.jwtVerify(token, keyToUse, {
             issuer: 'http://backend-express.com',
             audience: 'http://backend-express.com',
             algorithms: ['EdDSA'],
-        });
+        })
+            .then(({payload, protectedHeader})=>{
+                console.log(payload);
+                logger.info("Setting req.username to %s", payload.sub);
+                req.username = payload.sub;
+                return next();
+            })
+            .catch((err) => {
+                logger.error(err);
+                return unauthorized(req,res,next);
+            })
 
-        req.username = payload.sub;
-        return next();
+
     });
     
     app.get('/api/userinfo', (req, res) => {
-        logger.info("processing api/userinfo");
+        logger.info("processing api/userinfo for %s", req.username);
         res.json({
             loggedIn: req.username !== undefined,
             username: req.username,
         })
     });
+
+
+    const requireAuth = express.Router();
+    requireAuth.use((req,res,next) => {
+        if (!req.username) {
+            return unauthorized(req, res,next);
+        }
+        return next();
+    });
+
+    requireAuth.get('/api/getcounter', (req, res, next) => {
+ 
+        User.findOne({username: req.username}, (err, user) => {
+            if (err) {
+                return res.status(401).json({message: "Invalid credentials"});
+            }
+            
+            if (user === null) {
+                return res.status(401).json({message: "Invalid credentials"});
+            }
+
+            return res.json({counter: user.counter});
+        });
+        
+    });
+
+    requireAuth.post('/api/increasecounter', (req, res, next) => {
+        logger.info('increasecounter')
+
+        User.findOne({username: req.username}, (err, user) => {
+            if (err) {
+                return res.status(401).json({message: "Invalid credentials"});
+            }
+            
+            if (user === null) {
+                return res.status(401).json({message: "Invalid credentials"});
+            }
+
+            user.counter++;
+            user.save().then((savedDoc) => {
+                logger.info('saved document')
+                res.json({counter: savedDoc.counter});
+            });
+        });
+    });
+
+    app.use(requireAuth);
     
     app.use(function(req,res) {
         res.status(404);
@@ -167,10 +243,9 @@ const crypto = require('crypto');
     
     app.listen(5001, function() {
         console.log('App started on port 5001');
-    });
-    
-    
-    
-
-        
+    });      
 })();
+
+async function unauthorized(req, res, next) {
+    res.status(403).json({"message": "Unauthorized"})
+}
